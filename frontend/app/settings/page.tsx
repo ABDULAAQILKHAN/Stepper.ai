@@ -15,14 +15,50 @@ import ProtectedRoute from "@/components/protected-route"
 import { Eye, EyeOff, Key, Trash2, Plus, Bot, Shield, Database, Zap } from "lucide-react"
 import { AI_PROVIDERS, validateApiKey, getProviderById } from "@/lib/ai/providers"
 import { showNotification } from "@/components/notification"
-
+import {connect} from "@/lib/api/api"
 function SettingsPageContent() {
   const [apiKeys, setApiKeys] = useState<Record<string, string>>({})
   const [selectedModels, setSelectedModels] = useState<Record<string, string>>({})
   const [showApiKeys, setShowApiKeys] = useState<Record<string, boolean>>({})
   const dispatch = useAppDispatch()
   const { aiConfigs, selectedProvider } = useAppSelector((state) => state.settings)
-
+  const [allAiModels, setAllAiModels] = useState<any[]>([]);
+  const [selectedModel, setSelectedModel] = useState<any>();
+  const [isFetchSelectedModelLoading, setIsFetchSelectedModelLoading] = useState(false);
+  const fetchAllAiModels = async () => {
+    try {
+      const response = await connect.getUserAiModals();
+      if (response) {
+        setAllAiModels(response);
+      } 
+    } catch (error) {
+      console.error("Error fetching AI models:", error);
+    }
+  }
+  const fetchSelectedModel = async () => {
+    try {
+      setIsFetchSelectedModelLoading(true);
+      const response = await connect.getSelectedAiModel();
+      if (response) {
+        console.log("Fetched selected AI model:", response);
+        if (response.model_id) {
+          dispatch(setSelectedProvider(response.model_id));
+          setSelectedModel(response);
+         //setSelectedModels((prev) => ({ ...prev, [response.model_id]: response.model }));
+        }
+      } else {
+        console.warn("No selected AI model found");
+      }
+    } catch (error) {
+      console.error("Error fetching selected AI model:", error);
+    }finally{
+      setIsFetchSelectedModelLoading(false);
+    }
+  }
+  useEffect(() => {
+    fetchAllAiModels();
+    fetchSelectedModel();
+  }, []);
   useEffect(() => {
     // Load API keys from localStorage
     AI_PROVIDERS.forEach((provider) => {
@@ -49,9 +85,10 @@ function SettingsPageContent() {
     if (savedProvider) {
       dispatch(setSelectedProvider(savedProvider))
     }
+
   }, [dispatch])
 
-  const handleSaveApiKey = (providerId: string) => {
+  const handleSaveApiKey = async (providerId: string) => {
     const apiKey = apiKeys[providerId]
     const model = selectedModels[providerId]
 
@@ -60,8 +97,12 @@ function SettingsPageContent() {
       return
     }
 
+    const provider = getProviderById(providerId)
+    if (!provider) {
+      showNotification({ title: "Error", description: "Invalid AI provider selected", type: "error" })
+      return
+    }
     if (!validateApiKey(providerId, apiKey)) {
-      const provider = getProviderById(providerId)
       showNotification({
         title: "Error",
         description: `${provider?.name} API key should start with "${provider?.keyPrefix}"`,
@@ -69,10 +110,28 @@ function SettingsPageContent() {
       })
       return
     }
-
-    localStorage.setItem(`${providerId}-api-key`, apiKey)
-    localStorage.setItem(`${providerId}-model`, model)
-    dispatch(setAIConfig({ providerId, apiKey, model }))
+    //console.log("Saving API key:", provider,model,apiKey)
+    try {
+      const createAIResponse = await connect.createUserAiModal({
+        model_id: provider.id,
+        name: provider.name,
+        model: model,
+        api_key: apiKey,
+      })
+      if(createAIResponse.success === false && createAIResponse.error) {
+        showNotification({
+          title: "Error",
+          description: createAIResponse.error,
+          type: "error",
+        })
+        return
+      }
+    } catch (error) {
+      console.error("Error creating AI modal:", error)
+    }
+    // localStorage.setItem(`${providerId}-api-key`, apiKey)
+    // localStorage.setItem(`${providerId}-model`, model)
+    // dispatch(setAIConfig({ providerId, apiKey, model }))
 
     showNotification({
       title: "Success",
@@ -94,9 +153,19 @@ function SettingsPageContent() {
     })
   }
 
-  const handleProviderSelect = (providerId: string) => {
-    dispatch(setSelectedProvider(providerId))
-    localStorage.setItem("selected-provider", providerId)
+  const handleProviderSelect = async (providerId: string) => {
+    //dispatch(setSelectedProvider(providerId))
+    //localStorage.setItem("selected-provider", providerId)
+    const response = await connect.setSelectedAiModel({ model_id: providerId })
+    if (!response || !response.id) {
+      showNotification({
+        title: "Error",
+        description: "Failed to set selected AI model",
+        type: "error",
+      })
+      return
+    }
+    fetchSelectedModel()
     showNotification({
       title: "Provider Updated",
       description: `Switched to ${getProviderById(providerId)?.name}`,
@@ -145,21 +214,32 @@ function SettingsPageContent() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <Select value={selectedProvider} onValueChange={handleProviderSelect}>
+                   {isFetchSelectedModelLoading ? (
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span>Loading...</span>
+                          </div>
+                        </div>
+                      ):
+                  <Select value={selectedModel.model_id} onValueChange={handleProviderSelect}>
                     <SelectTrigger className="bg-white/50 dark:bg-gray-800/50 border-white/30">
                       <SelectValue placeholder="Select AI Provider" />
                     </SelectTrigger>
                     <SelectContent>
-                      {AI_PROVIDERS.filter((provider) => aiConfigs[provider.id]).map((provider) => (
-                        <SelectItem key={provider.id} value={provider.id}>
+
+                      {
+                      allAiModels?.filter((provider) => aiConfigs[provider.model_id]).map((provider) => (
+                        <SelectItem key={provider.id} value={provider.model_id}>
                           <div className="flex items-center gap-2">
-                            <span>{provider.name}</span>
-                            <span className="text-xs text-gray-500">({aiConfigs[provider.id]?.model})</span>
+                            <span>{provider?.name}</span>
+                            <span className="text-xs text-gray-500">{provider?.model}</span>
                           </div>
                         </SelectItem>
                       ))}
+                    
                     </SelectContent>
                   </Select>
+}
                 </CardContent>
               </Card>
             </motion.div>

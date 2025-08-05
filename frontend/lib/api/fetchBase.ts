@@ -21,7 +21,7 @@ interface ApiError {
 
 // Create an Axios instance with TypeScript
 const api: AxiosInstance = axios.create({
-  baseURL: 'http://localhost:8000/', 
+  baseURL: 'http://localhost:8000', 
   timeout: 10000, 
   headers: {
     //'Content-Type': 'application/json',
@@ -32,7 +32,6 @@ const api: AxiosInstance = axios.create({
 api.interceptors.request.use(
   (config: AxiosRequestConfig): any => {
     const token = localStorage.getItem('token');
-    console.log("TOken:", token);
     if (token && config.headers) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -58,14 +57,32 @@ api.interceptors.response.use(
 );
 
 // Helper function for typed API calls
+// export const fetchData = async <T>(
+//   config: AxiosRequestConfig
+// ): Promise<ApiResponse<T>> => {
+//   try {
+//     const response = await api(config);
+//     return response;
+//   } catch (error) {
+//     return Promise.reject(error as AxiosError<ApiError>);
+//     throw error as AxiosError<ApiError>;
+//   }
+// };
 export const fetchData = async <T>(
   config: AxiosRequestConfig
-): Promise<ApiResponse<T>> => {
+): Promise<AxiosResponse<T>> => {
   try {
     const response = await api(config);
     return response;
-  } catch (error) {
-    throw error as AxiosError<ApiError>;
+  } catch (error: any) {
+    // Axios attaches server response object under error.response
+    if (error.response) {
+      console.error("API returned error:", error.response.data);
+      return error.response; // or throw error.response.data for the message
+    } else {
+      console.error(error.message);
+      throw error;
+    }
   }
 };
 

@@ -15,6 +15,14 @@ import { setUser } from "@/lib/slices/authSlice"
 import { useDispatch } from "react-redux"
 import { connect } from "@/lib/api/api"
 import { authService } from "@/lib/auth/supabase-auth"
+
+interface SyncResponse {
+  success: boolean;
+}
+/**
+ * LoginPage component for user authentication.
+ * It handles user login, form validation, and error handling.
+ */
 export default function LoginPage() {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
@@ -73,14 +81,23 @@ export default function LoginPage() {
         if( user.token) {
           localStorage.setItem("token", user.token);
         }
-        connect.sync()
+        const syncResponse:SyncResponse = await connect.sync()
+        if (!syncResponse.success){
+          showNotification({
+            title: "Sync Error",
+            description: "Failed to sync login details. Please try again later.",
+            variant: "destructive",
+            type: "error",
+          })
+          return
+        }
         showNotification({
           title: "Success",
           type: "success",
           variant: "default",
           description: "Logged in successfully!",
         })
-        //router.push("/chat")
+        router.push("/chat")
       }
     } catch (error) {
       showNotification({

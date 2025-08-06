@@ -63,22 +63,26 @@ async def create_model(
 
     user_id = user_data["sub"]
 
-    # 🔍 Check if model with same model_id and api_key already exists for the user
+    # Check if model with same model_id exists for the user
     existing_model = db.query(UserAiModels).filter(
         UserAiModels.user_id == user_id,
-        UserAiModels.model_id == data.model_id,
-        UserAiModels.api_key == data.api_key
+        UserAiModels.model_id == data.model_id
     ).first()
 
     if existing_model:
-        return JSONResponse(
-            status_code=409,
-            content={
-                "success": False,
-                "error": "Model with the same API key already exists"
-            }
-        )
+        # Check if model or api_key changed
+        if existing_model.model != data.model or existing_model.api_key != data.api_key:
+            # Update existing model details
+            existing_model.model = data.model
+            existing_model.api_key = data.api_key
+            existing_model.name = data.name  # optionally update the name too
+            db.commit()
+            db.refresh(existing_model)
+        
+        # Return existing or updated model
+        return existing_model
 
+    # No existing model found, create a new one
     new_model = UserAiModels(
         user_id=user_id,
         model_id=data.model_id,
@@ -92,6 +96,7 @@ async def create_model(
     db.refresh(new_model)
 
     return new_model
+
 
 
 @app.get("/ai-models", response_model=list[ModelResponse])

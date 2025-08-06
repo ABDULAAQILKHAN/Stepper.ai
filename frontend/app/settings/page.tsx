@@ -15,84 +15,90 @@ import ProtectedRoute from "@/components/protected-route"
 import { Eye, EyeOff, Key, Trash2, Plus, Bot, Shield, Database, Zap } from "lucide-react"
 import { AI_PROVIDERS, validateApiKey, getProviderById } from "@/lib/ai/providers"
 import { showNotification } from "@/components/notification"
-import {connect} from "@/lib/api/api"
+import { connect } from "@/lib/api/api"
+import Loader from "@/components/ui/loader"
+
+interface AIModel {
+  id: string;
+  model_id: string;
+  name: string;
+  api_key: string;
+  model: string;
+}
+interface deleteUserAiModalResponse {
+  success: boolean;
+  message?: string;
+  error?: string | null;
+}
 function SettingsPageContent() {
+  const [aiModels, setAiModels] = useState<AIModel[]>([])
+  const [selectedModelId, setSelectedModelId] = useState<string | null>(null)
   const [apiKeys, setApiKeys] = useState<Record<string, string>>({})
-  const [selectedModels, setSelectedModels] = useState<Record<string, string>>({})
   const [showApiKeys, setShowApiKeys] = useState<Record<string, boolean>>({})
+  const [newModelSelection, setNewModelSelection] = useState<Record<string, string>>({})
+  const [isLoading, setIsLoading] = useState<boolean>(false)
   const dispatch = useAppDispatch()
-  const { aiConfigs, selectedProvider } = useAppSelector((state) => state.settings)
-  const [allAiModels, setAllAiModels] = useState<any[]>([]);
-  const [selectedModel, setSelectedModel] = useState<any>();
-  const [isFetchSelectedModelLoading, setIsFetchSelectedModelLoading] = useState(false);
-  const fetchAllAiModels = async () => {
-    try {
-      const response = await connect.getUserAiModals();
-      if (response) {
-        setAllAiModels(response);
-      } 
-    } catch (error) {
-      console.error("Error fetching AI models:", error);
-    }
-  }
-  const fetchSelectedModel = async () => {
-    try {
-      setIsFetchSelectedModelLoading(true);
-      const response = await connect.getSelectedAiModel();
-      if (response) {
-        console.log("Fetched selected AI model:", response);
-        if (response.model_id) {
-          dispatch(setSelectedProvider(response.model_id));
-          setSelectedModel(response);
-         //setSelectedModels((prev) => ({ ...prev, [response.model_id]: response.model }));
+  const { aiConfigs } = useAppSelector((state) => state.settings)
+
+  // Fetch all AI models and selected model on mount
+  useEffect(() => {
+    const fetchData = async () => {
+      setIsLoading(true)
+      try {
+        // Fetch all available AI models
+        const modelsResponse = await connect.getUserAiModals()
+        if (modelsResponse) {
+          setAiModels(modelsResponse)
+          
+          // Initialize states
+          const initialApiKeys: Record<string, string> = {}
+          const initialShowApiKeys: Record<string, boolean> = {}
+          const initialModelSelections: Record<string, string> = {}
+
+          modelsResponse.forEach((model: AIModel) => {
+            initialApiKeys[model.model_id] = model.api_key
+            initialShowApiKeys[model.model_id] = false
+            initialModelSelections[model.model_id] = model.model
+          })
+
+          setApiKeys(initialApiKeys)
+          setShowApiKeys(initialShowApiKeys)
+          setNewModelSelection(initialModelSelections)
+
+          // Update Redux store
+          modelsResponse.forEach((model: AIModel) => {
+            dispatch(setAIConfig({
+              providerId: model.model_id,
+              apiKey: model.api_key,
+              model: model.model
+            }))
+          })
         }
-      } else {
-        console.warn("No selected AI model found");
-      }
-    } catch (error) {
-      console.error("Error fetching selected AI model:", error);
-    }finally{
-      setIsFetchSelectedModelLoading(false);
-    }
-  }
-  useEffect(() => {
-    fetchAllAiModels();
-    fetchSelectedModel();
-  }, []);
-  useEffect(() => {
-    // Load API keys from localStorage
-    AI_PROVIDERS.forEach((provider) => {
-      const savedKey = localStorage.getItem(`${provider.id}-api-key`)
-      const savedModel = localStorage.getItem(`${provider.id}-model`)
-      if (savedKey) {
-        setApiKeys((prev) => ({ ...prev, [provider.id]: savedKey }))
-        dispatch(
-          setAIConfig({
-            providerId: provider.id,
-            apiKey: savedKey,
-            model: savedModel || provider.models[0],
-          }),
-        )
-      }
-      if (savedModel) {
-        setSelectedModels((prev) => ({ ...prev, [provider.id]: savedModel }))
-      } else {
-        setSelectedModels((prev) => ({ ...prev, [provider.id]: provider.models[0] }))
-      }
-    })
 
-    const savedProvider = localStorage.getItem("selected-provider")
-    if (savedProvider) {
-      dispatch(setSelectedProvider(savedProvider))
+        // Fetch selected model
+        const selectedResponse = await connect.getSelectedAiModel()
+        if (selectedResponse?.model_id) {
+          setSelectedModelId(selectedResponse.model_id)
+          dispatch(setSelectedProvider(selectedResponse.model_id))
+        }
+      } catch (error) {
+        console.error("Error fetching data:", error)
+        showNotification({
+          title: "Error",
+          description: "Failed to fetch AI configurations",
+          type: "error"
+        })
+      } finally {
+        setIsLoading(false)
+      }
     }
 
+    fetchData()
   }, [dispatch])
 
   const handleSaveApiKey = async (providerId: string) => {
-    const apiKey = apiKeys[providerId]
-    const model = selectedModels[providerId]
-
-    if (!apiKey?.trim()) {
+    const apiKey = apiKeys[providerId]?.trim()
+    if (!apiKey) {
       showNotification({ title: "Error", description: "Please enter a valid API key", type: "error" })
       return
     }
@@ -102,75 +108,164 @@ function SettingsPageContent() {
       showNotification({ title: "Error", description: "Invalid AI provider selected", type: "error" })
       return
     }
+
     if (!validateApiKey(providerId, apiKey)) {
       showNotification({
         title: "Error",
-        description: `${provider?.name} API key should start with "${provider?.keyPrefix}"`,
-        type: "error",
+        description: `${provider.name} API key should start with "${provider.keyPrefix}"`,
+        type: "error"
       })
       return
     }
-    //console.log("Saving API key:", provider,model,apiKey)
-    try {
-      const createAIResponse = await connect.createUserAiModal({
-        model_id: provider.id,
-        name: provider.name,
-        model: model,
-        api_key: apiKey,
+
+    const selectedModel = newModelSelection[providerId] || provider.models[0]
+    if (!provider.models.includes(selectedModel)) {
+      showNotification({
+        title: "Error",
+        description: `Invalid model selected for ${provider.name}`,
+        type: "error"
       })
-      if(createAIResponse.success === false && createAIResponse.error) {
+      return
+    }
+
+    try {
+      setIsLoading(true)
+      const response = await connect.createUserAiModal({
+        model_id: providerId,
+        name: provider.name,
+        api_key: apiKey,
+        model: selectedModel
+      })
+
+      if (response.success === false && response.error) {
         showNotification({
           title: "Error",
-          description: createAIResponse.error,
-          type: "error",
+          description: response.error,
+          type: "error"
         })
         return
       }
+
+      if (!("id" in response) || !response.id) {
+        showNotification({
+          title: "Error",
+          description: "Failed to save configuration: missing model id",
+          type: "error"
+        })
+        return
+      }
+
+      // Update local state
+      setAiModels((prev) => [
+        ...prev.filter((m) => m.model_id !== providerId),
+        { id: response.id, model_id: providerId, name: provider.name, api_key: apiKey, model: selectedModel }
+      ])
+      
+      // Update Redux
+      dispatch(setAIConfig({
+        providerId,
+        apiKey,
+        model: selectedModel
+      }))
+
+      showNotification({
+        title: "Success",
+        description: `${provider.name} configuration saved!`,
+        type: "success"
+      })
     } catch (error) {
-      console.error("Error creating AI modal:", error)
-    }
-    // localStorage.setItem(`${providerId}-api-key`, apiKey)
-    // localStorage.setItem(`${providerId}-model`, model)
-    // dispatch(setAIConfig({ providerId, apiKey, model }))
-
-    showNotification({
-      title: "Success",
-      description: `${getProviderById(providerId)?.name} configuration saved!`,
-      type: "success",
-    })
-  }
-
-  const handleClearApiKey = (providerId: string) => {
-    localStorage.removeItem(`${providerId}-api-key`)
-    localStorage.removeItem(`${providerId}-model`)
-    dispatch(removeAIConfig(providerId))
-    setApiKeys((prev) => ({ ...prev, [providerId]: "" }))
-
-    showNotification({
-      title: "Success",
-      description: `${getProviderById(providerId)?.name} configuration cleared!`,
-      type: "success",
-    })
-  }
-
-  const handleProviderSelect = async (providerId: string) => {
-    //dispatch(setSelectedProvider(providerId))
-    //localStorage.setItem("selected-provider", providerId)
-    const response = await connect.setSelectedAiModel({ model_id: providerId })
-    if (!response || !response.id) {
+      console.error("Error saving AI model:", error)
       showNotification({
         title: "Error",
-        description: "Failed to set selected AI model",
-        type: "error",
+        description: "Failed to save configuration",
+        type: "error"
+      })
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleClearApiKey = async (providerId: string) => {
+    const model = aiModels.find((m) => m.model_id === providerId)
+    if (!model?.id) {
+      showNotification({
+        title: "Error",
+        description: "Failed to find AI model",
+        type: "error"
       })
       return
     }
-    fetchSelectedModel()
-    showNotification({
-      title: "Provider Updated",
-      description: `Switched to ${getProviderById(providerId)?.name}`,
-      type: "info",
-    })
+
+    try {
+      setIsLoading(true)
+      const response = await connect.deleteUserAiModal(model.id)
+      if (!response || !response.success) {
+        showNotification({
+          title: "Error",
+          description: "Failed to clear configuration",
+          type: "error"
+        })
+        return
+      }
+
+      // Update local state
+      setAiModels((prev) => prev.filter((m) => m.model_id !== providerId))
+      setApiKeys((prev) => ({ ...prev, [providerId]: "" }))
+      dispatch(removeAIConfig(providerId))
+
+      // If this was the selected model, clear selection
+      if (selectedModelId === providerId) {
+        setSelectedModelId(null)
+        dispatch(setSelectedProvider(""))
+      }
+
+      showNotification({
+        title: "Success",
+        description: `${getProviderById(providerId)?.name} configuration cleared!`,
+        type: "success"
+      })
+    } catch (error) {
+      console.error("Error clearing configuration:", error)
+      showNotification({
+        title: "Error",
+        description: "Failed to clear configuration",
+        type: "error"
+      })
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleProviderSelect = async (providerId: string) => {
+    try {
+      setIsLoading(true)
+      const response = await connect.setSelectedAiModel({ model_id: providerId })
+      if (!response || !response.id) {
+        showNotification({
+          title: "Error",
+          description: "Failed to set selected AI model",
+          type: "error"
+        })
+        return
+      }
+
+      setSelectedModelId(providerId)
+      dispatch(setSelectedProvider(providerId))
+      showNotification({
+        title: "Success",
+        description: `Switched to ${getProviderById(providerId)?.name}`,
+        type: "info"
+      })
+    } catch (error) {
+      console.error("Error setting selected model:", error)
+      showNotification({
+        title: "Error",
+        description: "Failed to set selected AI model",
+        type: "error"
+      })
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   const toggleApiKeyVisibility = (providerId: string) => {
@@ -186,7 +281,6 @@ function SettingsPageContent() {
   return (
     <div className="min-h-screen bg-transparent relative">
       <AnimatedBackground />
-
       <div className="relative z-10 container mx-auto px-4 py-8 max-w-4xl">
         <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="text-center mb-8">
           <h1 className="text-3xl font-bold text-white mb-4">Settings</h1>
@@ -204,7 +298,6 @@ function SettingsPageContent() {
           </TabsList>
 
           <TabsContent value="providers" className="space-y-6">
-            {/* Active Provider Selection */}
             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
               <Card className="bg-white/10 dark:bg-black/20 backdrop-blur-xl border border-white/20 dark:border-gray-800/50 shadow-xl">
                 <CardHeader>
@@ -214,37 +307,29 @@ function SettingsPageContent() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                   {isFetchSelectedModelLoading ? (
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span>Loading...</span>
-                          </div>
-                        </div>
-                      ):
-                  <Select value={selectedModel.model_id} onValueChange={handleProviderSelect}>
-                    <SelectTrigger className="bg-white/50 dark:bg-gray-800/50 border-white/30">
-                      <SelectValue placeholder="Select AI Provider" />
-                    </SelectTrigger>
-                    <SelectContent>
-
-                      {
-                      allAiModels?.filter((provider) => aiConfigs[provider.model_id]).map((provider) => (
-                        <SelectItem key={provider.id} value={provider.model_id}>
-                          <div className="flex items-center gap-2">
-                            <span>{provider?.name}</span>
-                            <span className="text-xs text-gray-500">{provider?.model}</span>
-                          </div>
-                        </SelectItem>
-                      ))}
-                    
-                    </SelectContent>
-                  </Select>
-}
+                  {isLoading ? (
+                    <Loader size={20} color="#ffffffff" speed={2} />
+                  ) : (
+                    <Select value={selectedModelId || ""} onValueChange={handleProviderSelect}>
+                      <SelectTrigger className="bg-white/50 dark:bg-gray-800/50 border-white/30">
+                        <SelectValue placeholder="Select AI Provider" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {aiModels.map((model) => (
+                          <SelectItem key={model.id} value={model.model_id}>
+                            <div className="flex items-center gap-2">
+                              <span>{model.name}</span>
+                              <span className="text-xs text-gray-500">{model.model}</span>
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
                 </CardContent>
               </Card>
             </motion.div>
 
-            {/* Provider Configurations */}
             <div className="grid gap-6">
               {AI_PROVIDERS.map((provider, index) => (
                 <motion.div
@@ -307,8 +392,10 @@ function SettingsPageContent() {
                           Model
                         </Label>
                         <Select
-                          value={selectedModels[provider.id] || provider.models[0]}
-                          onValueChange={(value) => setSelectedModels((prev) => ({ ...prev, [provider.id]: value }))}
+                          value={newModelSelection[provider.id] || provider.models[0]}
+                          onValueChange={(value) => {
+                            setNewModelSelection((prev) => ({ ...prev, [provider.id]: value }))
+                          }}
                         >
                           <SelectTrigger className="bg-white/50 dark:bg-gray-800/50 border-white/30">
                             <SelectValue />
@@ -328,6 +415,7 @@ function SettingsPageContent() {
                           <Button
                             onClick={() => handleSaveApiKey(provider.id)}
                             className="w-full bg-white text-black hover:bg-gray-200 shadow-lg"
+                            disabled={isLoading}
                           >
                             <InteractiveIcon icon={Plus} className="mr-2" />
                             Save Configuration
@@ -339,6 +427,7 @@ function SettingsPageContent() {
                               variant="outline"
                               onClick={() => handleClearApiKey(provider.id)}
                               className="bg-red-500/10 border-red-500/20 text-red-400 hover:bg-red-500/20 shadow-lg"
+                              disabled={isLoading}
                             >
                               <InteractiveIcon icon={Trash2} />
                             </Button>
@@ -364,14 +453,14 @@ function SettingsPageContent() {
                 <CardContent>
                   <div className="space-y-4 text-sm text-gray-300">
                     {[
-                      { icon: Database, text: "Your API keys are stored locally in your browser", color: "green" },
-                      { icon: Shield, text: "We never store or access your API keys on our servers", color: "blue" },
+                      { icon: Database, text: "Your API keys are stored securely in our database", color: "green" },
+                      { icon: Shield, text: "We implement strict security measures to protect your data", color: "blue" },
                       {
                         icon: Zap,
                         text: "Chat messages are processed directly with your chosen AI provider",
-                        color: "purple",
+                        color: "purple"
                       },
-                      { icon: Trash2, text: "You can clear your data anytime", color: "gray" },
+                      { icon: Trash2, text: "You can clear your data anytime", color: "gray" }
                     ].map((item, index) => (
                       <motion.div
                         key={index}

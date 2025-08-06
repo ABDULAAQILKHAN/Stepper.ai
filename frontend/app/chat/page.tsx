@@ -16,7 +16,7 @@ import { getProviderById } from "@/lib/ai/providers"
 import ReactMarkdown from "react-markdown"
 import CodeBlock from "@/components/code-block"
 import { showNotification } from "@/components/notification"
-
+import {connect} from "@/lib/api/api"
 interface Message {
   id: string
   role: "user" | "assistant"
@@ -33,17 +33,32 @@ function ChatPageContent() {
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
-  const { aiConfigs, selectedProvider } = useAppSelector((state) => state.settings)
-  const currentConfig = aiConfigs[selectedProvider]
+  const [currentConfig, setCurrentConfig] = useState<any>(null)
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }
-
+  
   useEffect(() => {
     scrollToBottom()
   }, [messages])
+  const getSelectedAiModel = async () => {
+    const response = await connect.getSelectedAiModel()
+    console.log("getSelectedAiModel response", response)
+    if (!response) {
+      showNotification({
+        title: "Error",
+        description: "Failed to fetch selected AI model",
+        type: "error",
+      })
+      return
+    }
+    setCurrentConfig(response)
+  }
 
+  useEffect(() => {
+    getSelectedAiModel()
+  }, [])
   const copyToClipboard = async (text: string, messageId: string) => {
     try {
       await navigator.clipboard.writeText(text)
@@ -66,10 +81,10 @@ function ChatPageContent() {
   const handleSend = async () => {
     if (!input.trim()) return
 
-    if (!currentConfig?.apiKey) {
+    if (!currentConfig?.api_key) {
       showNotification({
         title: "API Key Required",
-        description: `Please set your ${getProviderById(selectedProvider)?.name} API key in settings.`,
+        description: `Please set your ${getProviderById(currentConfig)?.name} API key in settings.`,
         type: "error",
       })
       return
@@ -106,8 +121,8 @@ function ChatPageContent() {
     try {
       await chatService.streamChat(
         chatMessages,
-        selectedProvider,
-        currentConfig.apiKey,
+        currentConfig.model_id,
+        currentConfig.api_key,
         currentConfig.model,
         (chunk) => {
           if (chunk.error) {
@@ -297,7 +312,7 @@ function ChatPageContent() {
           {currentConfig && (
             <div className="flex items-center justify-center gap-2 text-sm text-gray-400">
               <span>
-                Powered by {getProviderById(selectedProvider)?.name} • {currentConfig.model}
+                Powered by {currentConfig?.name} • {currentConfig?.model}
               </span>
             </div>
           )}
@@ -305,7 +320,7 @@ function ChatPageContent() {
 
         {/* API Key Warning */}
         <AnimatePresence>
-          {!currentConfig?.apiKey && (
+          {!currentConfig?.api_key && (
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}

@@ -18,8 +18,8 @@ interface GetModelInfo {
 interface UserAiModal {
   model_id: string;
   name: string;
-  model: string;
   api_key: string;
+  model: string;
 }
 
 interface updateAiModal {
@@ -30,7 +30,8 @@ interface updateAiModal {
 
 interface deleteUserAiModalResponse {
   success: boolean;
-  error: string | null;
+  message?: string;
+  error?: string | null;
 }
 
 interface SelectModelRequest {
@@ -77,7 +78,7 @@ export const connect = {
   deleteUserAiModal: async (modelId: string): Promise<deleteUserAiModalResponse> => {
     const response = await fetchData<deleteUserAiModalResponse>({
       method: 'DELETE',
-      url: `/ai-models/${modelId}`,
+      url: `/models/${modelId}`,
     });
     return response.data;
   },

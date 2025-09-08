@@ -7,7 +7,14 @@ import asyncio
 from database import SessionLocal, engine
 from models import Base, User, UserAiModels, UserSelectedAiModel
 from supabase import validate_supabase_token
-from schema import CreateModelRequest, ModelResponse, UserSelectedAiModelResponse, SelectModelRequest, ChatRequest, ChatMessage
+from schema import (
+    CreateModelRequest,
+    ModelResponse,
+    UserSelectedAiModelResponse,
+    SelectModelRequest,
+    ChatRequest,
+    ChatMessage,
+)
 from ai_providers.ai_service import ai_service
 
 app = FastAPI()
@@ -23,6 +30,7 @@ security = HTTPBearer()
 # Create all tables
 Base.metadata.create_all(bind=engine)
 
+
 # Dependency to get DB session
 def get_db():
     db = SessionLocal()
@@ -31,15 +39,23 @@ def get_db():
     finally:
         db.close()
 
+
+@app.get("/")
+def root():
+    return {"message": "It works!"}
+
+
 @app.post("/sync")
 async def sync_user(
     credentials: HTTPAuthorizationCredentials = Security(security),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     token = credentials.credentials
     user_data = await validate_supabase_token(token)
     if not user_data:
-        return JSONResponse(status_code=401, content={"success": False, "error": "Invalid token"})
+        return JSONResponse(
+            status_code=401, content={"success": False, "error": "Invalid token"}
+        )
 
     user_id = user_data["sub"]
     email = user_data.get("email")
@@ -53,24 +69,28 @@ async def sync_user(
 
     return {"success": True}
 
+
 @app.post("/ai-models", response_model=ModelResponse)
 async def create_model(
     data: CreateModelRequest,
     credentials: HTTPAuthorizationCredentials = Security(security),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     token = credentials.credentials
     user_data = await validate_supabase_token(token)
     if not user_data:
-        return JSONResponse(status_code=401, content={"success": False, "error": "Invalid token"})
+        return JSONResponse(
+            status_code=401, content={"success": False, "error": "Invalid token"}
+        )
 
     user_id = user_data["sub"]
 
     # Check if model with same model_id exists for the user
-    existing_model = db.query(UserAiModels).filter(
-        UserAiModels.user_id == user_id,
-        UserAiModels.model_id == data.model_id
-    ).first()
+    existing_model = (
+        db.query(UserAiModels)
+        .filter(UserAiModels.user_id == user_id, UserAiModels.model_id == data.model_id)
+        .first()
+    )
 
     if existing_model:
         # Check if model or api_key changed
@@ -81,7 +101,7 @@ async def create_model(
             existing_model.name = data.name  # optionally update the name too
             db.commit()
             db.refresh(existing_model)
-        
+
         # Return existing or updated model
         return existing_model
 
@@ -91,7 +111,7 @@ async def create_model(
         model_id=data.model_id,
         name=data.name,
         model=data.model,
-        api_key=data.api_key
+        api_key=data.api_key,
     )
 
     db.add(new_model)
@@ -101,49 +121,58 @@ async def create_model(
     return new_model
 
 
-
 @app.get("/ai-models", response_model=list[ModelResponse])
 async def get_user_models(
     credentials: HTTPAuthorizationCredentials = Security(security),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     token = credentials.credentials
     user_data = await validate_supabase_token(token)
     if not user_data:
-        return JSONResponse(status_code=401, content={"success": False, "error": "Invalid token"})
+        return JSONResponse(
+            status_code=401, content={"success": False, "error": "Invalid token"}
+        )
 
     user_id = user_data["sub"]
     models = db.query(UserAiModels).filter(UserAiModels.user_id == user_id).all()
     return models
 
+
 from fastapi import Path
 from pydantic import BaseModel
+
 
 class UpdateModelRequest(BaseModel):
     name: str | None = None
     model: str | None = None
     api_key: str | None = None
 
+
 @app.patch("/ai-models/{model_id}", response_model=ModelResponse)
 async def update_model(
     model_id: str = Path(...),
     data: UpdateModelRequest = None,
     credentials: HTTPAuthorizationCredentials = Security(security),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     token = credentials.credentials
     user_data = await validate_supabase_token(token)
     if not user_data:
-        return JSONResponse(status_code=401, content={"success": False, "error": "Invalid token"})
+        return JSONResponse(
+            status_code=401, content={"success": False, "error": "Invalid token"}
+        )
 
     user_id = user_data["sub"]
-    model_entry = db.query(UserAiModels).filter(
-        UserAiModels.user_id == user_id,
-        UserAiModels.model_id == model_id
-    ).first()
+    model_entry = (
+        db.query(UserAiModels)
+        .filter(UserAiModels.user_id == user_id, UserAiModels.model_id == model_id)
+        .first()
+    )
 
     if not model_entry:
-        return JSONResponse(status_code=404, content={"success": False, "error": "Model not found"})
+        return JSONResponse(
+            status_code=404, content={"success": False, "error": "Model not found"}
+        )
 
     if data.name is not None:
         model_entry.name = data.name
@@ -157,29 +186,31 @@ async def update_model(
     return model_entry
 
 
-
 @app.delete("/models/{id}")
 async def delete_model(
     id: str = Path(...),
     credentials: HTTPAuthorizationCredentials = Security(security),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     token = credentials.credentials
     user_data = await validate_supabase_token(token)
     if not user_data:
-        return JSONResponse(status_code=401, content={"success": False, "error": "Invalid token"})
+        return JSONResponse(
+            status_code=401, content={"success": False, "error": "Invalid token"}
+        )
 
     user_id = user_data["sub"]
 
-    model_entry = db.query(UserAiModels).filter(
-        UserAiModels.id == id,
-        UserAiModels.user_id == user_id
-    ).first()
+    model_entry = (
+        db.query(UserAiModels)
+        .filter(UserAiModels.id == id, UserAiModels.user_id == user_id)
+        .first()
+    )
 
     if not model_entry:
         return JSONResponse(
             status_code=404,
-            content={"success": False, "error": "Model not found or access denied"}
+            content={"success": False, "error": "Model not found or access denied"},
         )
 
     db.delete(model_entry)
@@ -187,25 +218,27 @@ async def delete_model(
 
     return {"success": True, "message": "Model deleted successfully"}
 
+
 @app.put("/models/selected", response_model=UserSelectedAiModelResponse)
 async def set_selected_model(
     data: SelectModelRequest,
     credentials: HTTPAuthorizationCredentials = Security(security),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     token = credentials.credentials
     user_data = await validate_supabase_token(token)
     if not user_data:
         return JSONResponse(
-            status_code=401,
-            content={"success": False, "error": "Invalid token"}
+            status_code=401, content={"success": False, "error": "Invalid token"}
         )
 
     user_id = user_data["sub"]
 
-    existing_selection = db.query(UserSelectedAiModel).filter(
-        UserSelectedAiModel.user_id == user_id
-    ).first()
+    existing_selection = (
+        db.query(UserSelectedAiModel)
+        .filter(UserSelectedAiModel.user_id == user_id)
+        .first()
+    )
 
     if existing_selection:
         existing_selection.model_id = data.model_id
@@ -213,10 +246,7 @@ async def set_selected_model(
         db.refresh(existing_selection)
         return existing_selection
 
-    new_selection = UserSelectedAiModel(
-        user_id=user_id,
-        model_id=data.model_id
-    )
+    new_selection = UserSelectedAiModel(user_id=user_id, model_id=data.model_id)
 
     db.add(new_selection)
     db.commit()
@@ -224,42 +254,46 @@ async def set_selected_model(
 
     return new_selection
 
+
 @app.get("/models/selected/details", response_model=ModelResponse)
 async def get_selected_model_details(
     credentials: HTTPAuthorizationCredentials = Security(security),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     token = credentials.credentials
     user_data = await validate_supabase_token(token)
     if not user_data:
         return JSONResponse(
-            status_code=401,
-            content={"success": False, "error": "Invalid token"}
+            status_code=401, content={"success": False, "error": "Invalid token"}
         )
 
     user_id = user_data["sub"]
 
     # Step 1: Fetch the selected model_id
-    selection = db.query(UserSelectedAiModel).filter(
-        UserSelectedAiModel.user_id == user_id
-    ).first()
+    selection = (
+        db.query(UserSelectedAiModel)
+        .filter(UserSelectedAiModel.user_id == user_id)
+        .first()
+    )
 
     if not selection:
         return JSONResponse(
             status_code=404,
-            content={"success": False, "error": "No selected model found"}
+            content={"success": False, "error": "No selected model found"},
         )
 
     # Step 2: Fetch full model details
-    model_entry = db.query(UserAiModels).filter(
-        UserAiModels.user_id == user_id,
-        UserAiModels.model_id == selection.model_id
-    ).first()
+    model_entry = (
+        db.query(UserAiModels)
+        .filter(
+            UserAiModels.user_id == user_id, UserAiModels.model_id == selection.model_id
+        )
+        .first()
+    )
 
     if not model_entry:
         return JSONResponse(
-            status_code=404,
-            content={"success": False, "error": "Model not found"}
+            status_code=404, content={"success": False, "error": "Model not found"}
         )
 
     return model_entry
@@ -274,6 +308,7 @@ async def get_available_providers():
 
 # Assuming chatService is imported and has a non-streaming helper (or you wrap your streaming call to accumulate)
 
+
 @app.post("/chat")
 async def chat_endpoint_non_stream(
     request: Request,
@@ -284,41 +319,60 @@ async def chat_endpoint_non_stream(
     token = credentials.credentials
     user_data = await validate_supabase_token(token)
     if not user_data:
-        return JSONResponse(status_code=401, content={"success": False, "error": "Invalid token"})
+        return JSONResponse(
+            status_code=401, content={"success": False, "error": "Invalid token"}
+        )
 
     user_id = user_data["sub"]
 
-    selection = db.query(UserSelectedAiModel).filter(UserSelectedAiModel.user_id == user_id).first()
+    selection = (
+        db.query(UserSelectedAiModel)
+        .filter(UserSelectedAiModel.user_id == user_id)
+        .first()
+    )
     if not selection:
-        return JSONResponse(status_code=404, content={"success": False, "error": "No selected model found"})
+        return JSONResponse(
+            status_code=404,
+            content={"success": False, "error": "No selected model found"},
+        )
 
-    model_entry = db.query(UserAiModels).filter(
-        UserAiModels.user_id == user_id,
-        UserAiModels.model_id == selection.model_id,
-    ).first()
+    model_entry = (
+        db.query(UserAiModels)
+        .filter(
+            UserAiModels.user_id == user_id,
+            UserAiModels.model_id == selection.model_id,
+        )
+        .first()
+    )
     print("model_entry details:", model_entry)
     if not model_entry or not model_entry.api_key:
         return JSONResponse(
             status_code=400,
-            content={"success": False, "error": "API key is missing for the selected model"},
+            content={
+                "success": False,
+                "error": "API key is missing for the selected model",
+            },
         )
 
     try:
         # Convert messages to dict format
         messages = [{"role": msg.role, "content": msg.content} for msg in data.messages]
-        
+
         # Generate response using AI service
         response = await ai_service.generate_response(
             messages,
             model_entry.model_id,  # provider_id (e.g., "gemini")
             model_entry.api_key,
-            model_entry.model      # model name
+            model_entry.model,  # model name
         )
-        
+
         return {"success": True, "response": response}
-        
+
     except Exception as e:
-        return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
+        return JSONResponse(
+            status_code=500, content={"success": False, "error": str(e)}
+        )
+
 
 @app.post("/chats")
 async def chat_endpoint_stream(
@@ -331,33 +385,51 @@ async def chat_endpoint_stream(
     token = credentials.credentials
     user_data = await validate_supabase_token(token)
     if not user_data:
-        return JSONResponse(status_code=401, content={"success": False, "error": "Invalid token"})
+        return JSONResponse(
+            status_code=401, content={"success": False, "error": "Invalid token"}
+        )
 
     user_id = user_data["sub"]
 
     # Fetch user's selected AI model
-    selection = db.query(UserSelectedAiModel).filter(UserSelectedAiModel.user_id == user_id).first()
+    selection = (
+        db.query(UserSelectedAiModel)
+        .filter(UserSelectedAiModel.user_id == user_id)
+        .first()
+    )
     if not selection:
-        return JSONResponse(status_code=404, content={"success": False, "error": "No selected model found"})
+        return JSONResponse(
+            status_code=404,
+            content={"success": False, "error": "No selected model found"},
+        )
 
-    model_entry = db.query(UserAiModels).filter(
-        UserAiModels.user_id == user_id,
-        UserAiModels.model_id == selection.model_id,
-    ).first()
+    model_entry = (
+        db.query(UserAiModels)
+        .filter(
+            UserAiModels.user_id == user_id,
+            UserAiModels.model_id == selection.model_id,
+        )
+        .first()
+    )
 
     if not model_entry:
-        return JSONResponse(status_code=404, content={"success": False, "error": "Model not found"})
+        return JSONResponse(
+            status_code=404, content={"success": False, "error": "Model not found"}
+        )
 
     # Validate API key
     if not model_entry.api_key:
         return JSONResponse(
             status_code=400,
-            content={"success": False, "error": "API key is missing for the selected model"},
+            content={
+                "success": False,
+                "error": "API key is missing for the selected model",
+            },
         )
 
     # Convert messages to dict format
     messages = [{"role": msg.role, "content": msg.content} for msg in data.messages]
-    
+
     # Create queue for streaming
     queue = asyncio.Queue()
 
@@ -371,8 +443,8 @@ async def chat_endpoint_stream(
             messages,
             model_entry.model_id,  # provider_id (e.g., "gemini")
             model_entry.api_key,
-            model_entry.model,     # model name
-            on_chunk
+            model_entry.model,  # model name
+            on_chunk,
         )
 
     # Start the AI streaming task
@@ -382,7 +454,7 @@ async def chat_endpoint_stream(
     async def event_generator():
         while True:
             chunk = await queue.get()
-            
+
             if chunk.get("error"):
                 yield f"event: error\ndata: {chunk['error']}\n\n"
                 break

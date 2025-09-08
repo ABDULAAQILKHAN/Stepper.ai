@@ -1,6 +1,6 @@
 import axios, { AxiosError } from 'axios';
 import type { AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios';
-
+import { API_BASE_URL } from '../env';
 
 // Define a type for your API response structure (modify as needed)
 interface ApiResponse<T = any> {
@@ -21,7 +21,7 @@ interface ApiError {
 
 // Create an Axios instance with TypeScript
 const api: AxiosInstance = axios.create({
-  baseURL: 'http://localhost:8000', 
+  baseURL: API_BASE_URL, 
   timeout: 10000, 
   headers: {
     //'Content-Type': 'application/json',

@@ -16,7 +16,9 @@ import { getProviderById } from "@/lib/ai/providers"
 import ReactMarkdown from "react-markdown"
 import CodeBlock from "@/components/code-block"
 import { showNotification } from "@/components/notification"
-
+import {connect} from "@/lib/api/api"
+import { API_BASE_URL } from "@/lib/env"
+import Loader from "@/components/ui/loader"
 interface Message {
   id: string
   role: "user" | "assistant"
@@ -32,18 +34,43 @@ function ChatPageContent() {
   const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null)
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
-
-  const { aiConfigs, selectedProvider } = useAppSelector((state) => state.settings)
-  const currentConfig = aiConfigs[selectedProvider]
+  const [selectedAiModalLoading, setSelectedAiModalLoading] = useState(false)
+  const [currentConfig, setCurrentConfig] = useState<any>(null)
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }
-
+  
   useEffect(() => {
     scrollToBottom()
   }, [messages])
+  const getSelectedAiModel = async () => {
+    setSelectedAiModalLoading(true);
+    try{
+        const response = await connect.getSelectedAiModel()
+        if (!response) {
+        showNotification({
+          title: "Error",
+          description: "Failed to fetch selected AI model",
+          type: "error",
+        })
+        return
+      }
+      setCurrentConfig(response)
+    }catch(error){
+      showNotification({
+        title: "Error",
+        description: "Failed to fetch selected AI model",
+        type: "error",
+      })
+    }finally{
+      setSelectedAiModalLoading(false);
+    }
+  }
 
+  useEffect(() => {
+    getSelectedAiModel()
+  }, [])
   const copyToClipboard = async (text: string, messageId: string) => {
     try {
       await navigator.clipboard.writeText(text)
@@ -63,88 +90,174 @@ function ChatPageContent() {
     }
   }
 
-  const handleSend = async () => {
-    if (!input.trim()) return
+  // const handleSend = async () => {
+  //   if (!input.trim()) return
 
-    if (!currentConfig?.apiKey) {
-      showNotification({
-        title: "API Key Required",
-        description: `Please set your ${getProviderById(selectedProvider)?.name} API key in settings.`,
-        type: "error",
-      })
-      return
-    }
+  //   if (!currentConfig?.api_key) {
+  //     showNotification({
+  //       title: "API Key Required",
+  //       description: `Please set your ${getProviderById(currentConfig)?.name} API key in settings.`,
+  //       type: "error",
+  //     })
+  //     return
+  //   }
 
-    const userMessage: Message = {
-      id: Date.now().toString(),
-      role: "user",
-      content: input,
-      timestamp: Date.now(),
-    }
+  //   const userMessage: Message = {
+  //     id: Date.now().toString(),
+  //     role: "user",
+  //     content: input,
+  //     timestamp: Date.now(),
+  //   }
 
-    const assistantMessageId = (Date.now() + 1).toString()
-    const assistantMessage: Message = {
-      id: assistantMessageId,
-      role: "assistant",
-      content: "",
-      timestamp: Date.now(),
-      isStreaming: true,
-    }
+  //   const assistantMessageId = (Date.now() + 1).toString()
+  //   const assistantMessage: Message = {
+  //     id: assistantMessageId,
+  //     role: "assistant",
+  //     content: "",
+  //     timestamp: Date.now(),
+  //     isStreaming: true,
+  //   }
 
-    setMessages((prev) => [...prev, userMessage, assistantMessage])
-    setInput("")
-    setIsTyping(true)
-    setStreamingMessageId(assistantMessageId)
+  //   setMessages((prev) => [...prev, userMessage, assistantMessage])
+  //   setInput("")
+  //   setIsTyping(true)
+  //   setStreamingMessageId(assistantMessageId)
 
-    const chatMessages = [...messages, userMessage].map((msg) => ({
-      role: msg.role as "user" | "assistant",
-      content: msg.content,
-    }))
+  //   const chatMessages = [...messages, userMessage].map((msg) => ({
+  //     role: msg.role as "user" | "assistant",
+  //     content: msg.content,
+  //   }))
 
-    let fullContent = ""
+  //   let fullContent = ""
 
-    try {
-      await chatService.streamChat(
-        chatMessages,
-        selectedProvider,
-        currentConfig.apiKey,
-        currentConfig.model,
-        (chunk) => {
-          if (chunk.error) {
-            showNotification({
-              title: "Error",
-              description: chunk.error,
-              type: "error",
-            })
-            setIsTyping(false)
-            setStreamingMessageId(null)
-            return
-          }
+  //   try {
+  //     await chatService.streamChat(
+  //       chatMessages,
+  //       currentConfig.model_id,
+  //       currentConfig.api_key,
+  //       currentConfig.model,
+  //       (chunk) => {
+  //         if (chunk.error) {
+  //           showNotification({
+  //             title: "Error",
+  //             description: chunk.error,
+  //             type: "error",
+  //           })
+  //           setIsTyping(false)
+  //           setStreamingMessageId(null)
+  //           return
+  //         }
 
-          if (chunk.isComplete) {
-            setMessages((prev) =>
-              prev.map((msg) => (msg.id === assistantMessageId ? { ...msg, isStreaming: false } : msg)),
-            )
-            setIsTyping(false)
-            setStreamingMessageId(null)
-          } else {
-            fullContent += chunk.content
-            setMessages((prev) =>
-              prev.map((msg) => (msg.id === assistantMessageId ? { ...msg, content: fullContent } : msg)),
-            )
-          }
-        },
-      )
-    } catch (error) {
-      showNotification({
-        title: "Error",
-        description: "Failed to send message. Please try again.",
-        type: "error",
-      })
-      setIsTyping(false)
-      setStreamingMessageId(null)
-    }
+  //         if (chunk.isComplete) {
+  //           setMessages((prev) =>
+  //             prev.map((msg) => (msg.id === assistantMessageId ? { ...msg, isStreaming: false } : msg)),
+  //           )
+  //           setIsTyping(false)
+  //           setStreamingMessageId(null)
+  //         } else {
+  //           fullContent += chunk.content
+  //           setMessages((prev) =>
+  //             prev.map((msg) => (msg.id === assistantMessageId ? { ...msg, content: fullContent } : msg)),
+  //           )
+  //         }
+  //       },
+  //     )
+  //   } catch (error) {
+  //     showNotification({
+  //       title: "Error",
+  //       description: "Failed to send message. Please try again.",
+  //       type: "error",
+  //     })
+  //     setIsTyping(false)
+  //     setStreamingMessageId(null)
+  //   }
+  // }
+const handleSend = async () => {
+  if (!input.trim()) return;
+
+  if (!currentConfig?.api_key) {
+    showNotification({
+      title: "API Key Required",
+      description: `Please set your ${getProviderById(currentConfig)?.name} API key in settings.`,
+      type: "error",
+    });
+    return;
   }
+
+  // Prepare messages as before
+  const userMessage: Message = { id: Date.now().toString(), role: "user", content: input, timestamp: Date.now() };
+  const assistantMessageId = (Date.now() + 1).toString();
+  const assistantMessage: Message = { id: assistantMessageId, role: "assistant", content: "", timestamp: Date.now(), isStreaming: true };
+
+  setMessages((prev) => [...prev, userMessage, assistantMessage]);
+  setInput("");
+  setIsTyping(true);
+  setStreamingMessageId(assistantMessageId);
+
+  // Here, send chatMessages to your backend endpoint
+  const chatMessages = [...messages, userMessage].map((msg) => ({
+    role: msg.role as "user" | "assistant",
+    content: msg.content,
+  }));
+  
+  // Example fetch call to backend
+  try {
+    const token = localStorage.getItem('token');
+
+    const response = await fetch(API_BASE_URL+"/chat", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        messages: chatMessages,
+      }),
+    });
+
+    if (!response.ok) {
+      // Handle error
+      throw new Error(await response.text());
+    }
+
+    const data = await response.json();
+    console.log("Full response:", data.response);
+    // Update your UI/message state with `data.response`
+
+
+    if (!response.ok) throw new Error("Failed to fetch from chat API");
+
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error("No response body");
+
+    const decoder = new TextDecoder();
+    let fullContent = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const chunkStr = decoder.decode(value, { stream: true });
+      fullContent += chunkStr;
+
+      setMessages((prev) =>
+        prev.map((msg) => (msg.id === assistantMessageId ? { ...msg, content: fullContent } : msg)),
+      );
+    }
+
+    setMessages((prev) =>
+      prev.map((msg) => (msg.id === assistantMessageId ? { ...msg, isStreaming: false } : msg)),
+    );
+    setIsTyping(false);
+    setStreamingMessageId(null);
+  } catch (error: any) {
+    showNotification({
+      title: "Error",
+      description: error.message || "Failed to send message. Please try again.",
+      type: "error",
+    });
+    setIsTyping(false);
+    setStreamingMessageId(null);
+  }
+};
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -293,11 +406,10 @@ function ChatPageContent() {
         {/* Header */}
         <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="text-center mb-8">
           <h1 className="text-3xl font-bold text-white mb-4">AI Debug Assistant</h1>
-
-          {currentConfig && (
+          {currentConfig && !selectedAiModalLoading && (
             <div className="flex items-center justify-center gap-2 text-sm text-gray-400">
               <span>
-                Powered by {getProviderById(selectedProvider)?.name} • {currentConfig.model}
+                Powered by {currentConfig?.name} • {currentConfig?.model}
               </span>
             </div>
           )}
@@ -305,7 +417,7 @@ function ChatPageContent() {
 
         {/* API Key Warning */}
         <AnimatePresence>
-          {!currentConfig?.apiKey && (
+          {!currentConfig?.api_key && !selectedAiModalLoading && (
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}

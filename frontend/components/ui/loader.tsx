@@ -5,6 +5,7 @@ interface CircularLoaderProps {
   color?: string;      // Stroke color
   speed?: number;      // Animation speed in seconds
   thickness?: number;  // Stroke width
+  text?: string;   // Loading text
 }
 
 const Loader: React.FC<CircularLoaderProps> = ({
@@ -12,6 +13,7 @@ const Loader: React.FC<CircularLoaderProps> = ({
   color = "#ffffffff",
   speed = 1.2,
   thickness = 4,
+  text = "Loading..."
 }) => (
     <div className="flex flex-row gap-3 w-fit h-fit">
         <svg
@@ -42,8 +44,8 @@ const Loader: React.FC<CircularLoaderProps> = ({
                     }
                     `}</style>
         </svg>
-        <p>
-            Loading...
+        <p className="flex flex-col justify-center items-center">
+            {text}
         </p>
     </div>
 );

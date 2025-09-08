@@ -8,7 +8,7 @@ from database import SessionLocal, engine
 from models import Base, User, UserAiModels, UserSelectedAiModel
 from supabase import validate_supabase_token
 from schema import CreateModelRequest, ModelResponse, UserSelectedAiModelResponse, SelectModelRequest, ChatRequest, ChatMessage
-from ai_providers.ai_service import ai_service
+from ai_service import ai_service
 
 app = FastAPI()
 app.add_middleware(
@@ -272,8 +272,6 @@ async def get_available_providers():
     return {"success": True, "providers": providers}
 
 
-# Assuming chatService is imported and has a non-streaming helper (or you wrap your streaming call to accumulate)
-
 @app.post("/chat")
 async def chat_endpoint_non_stream(
     request: Request,
@@ -287,16 +285,17 @@ async def chat_endpoint_non_stream(
         return JSONResponse(status_code=401, content={"success": False, "error": "Invalid token"})
 
     user_id = user_data["sub"]
-
+    print("user_id:", user_id)
     selection = db.query(UserSelectedAiModel).filter(UserSelectedAiModel.user_id == user_id).first()
     if not selection:
         return JSONResponse(status_code=404, content={"success": False, "error": "No selected model found"})
-
+    print("selection details")
+    print(selection.model_id)
     model_entry = db.query(UserAiModels).filter(
         UserAiModels.user_id == user_id,
         UserAiModels.model_id == selection.model_id,
     ).first()
-    print("model_entry details:", model_entry)
+
     if not model_entry or not model_entry.api_key:
         return JSONResponse(
             status_code=400,
@@ -306,13 +305,14 @@ async def chat_endpoint_non_stream(
     try:
         # Convert messages to dict format
         messages = [{"role": msg.role, "content": msg.content} for msg in data.messages]
-        
+        print("model_entry details")
+        print(model_entry.model_id, model_entry.api_key, model_entry.model)
         # Generate response using AI service
         response = await ai_service.generate_response(
             messages,
-            model_entry.model_id,  # provider_id (e.g., "gemini")
-            model_entry.api_key,
             model_entry.model      # model name
+            model_entry.api_key,
+            model_entry.model_id,  # provider_id (e.g., "gemini")
         )
         
         return {"success": True, "response": response}

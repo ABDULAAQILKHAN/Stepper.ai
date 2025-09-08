@@ -15,7 +15,7 @@ import { setUser } from "@/lib/slices/authSlice"
 import { useDispatch } from "react-redux"
 import { connect } from "@/lib/api/api"
 import { authService } from "@/lib/auth/supabase-auth"
-
+import { API_BASE_URL } from "@/lib/env"
 interface SyncResponse {
   success: boolean;
 }
@@ -53,7 +53,6 @@ export default function LoginPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-
     if (!validateForm()) return
 
     setIsLoading(true)
